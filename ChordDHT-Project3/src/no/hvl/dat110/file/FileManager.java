@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import no.hvl.dat110.node.Message;
@@ -86,100 +87,117 @@ public class FileManager extends Thread {
 	 * @throws RemoteException 
 	 */
 	public Set<Message> requestActiveNodesForFile(String filename) throws RemoteException {
-		
+		Set<Message> nodes = new HashSet<Message>();
 		// generate the N replica keyids from the filename
-		
 		// create replicas
-		
+		createReplicaFiles(filename);
 		// findsuccessors for each file replica and save the result (fileID) for each successor 
-		
+		for(int i = 0; i < replicafiles.length; i++) {
+			BigInteger fileID = (BigInteger) replicafiles[i];
+			ChordNodeInterface succOfFileID = chordnode.findSuccessor(fileID);
+			// if we find the successor node of fileID, we can assign the file to the successor. This should always work even with one node
+			if(succOfFileID != null) {
+				//new hashMap<BigInteger, Message>()
+				Map<BigInteger, Message> succMap = succOfFileID.getFilesMetadata();
+				if(!checkDuplicateActiveNode(nodes, succMap.get(fileID))) {
+					nodes.add(succMap.get(fileID));
+				}
+			}			
+		}
 		// if we find the successor node of fileID, we can retrieve the message associated with a fileID by calling the getFilesMetadata() of chordnode.
-		
 		// save the message in a list but eliminate duplicated entries. e.g a node may be repeated because it maps more than one replicas to its id. (use checkDuplicateActiveNode)
-		
-		return null;	// return value is a Set of type Message		
+		return nodes;	// return value is a Set of type Message		
 	}
 	
 	private boolean checkDuplicateActiveNode(Set<Message> activenodesdata, Message nodetocheck) {
-		
 		for(Message nodedata : activenodesdata) {
 			if(nodetocheck.getNodeID().compareTo(nodedata.getNodeID()) == 0)
 				return true;
 		}
-		
 		return false;
 	}
 	
 	public boolean requestToReadFileFromAnyActiveNode(String filename) throws RemoteException, NotBoundException {
 		
 		// get all the activenodes that have the file (replicas) i.e. requestActiveNodesForFile(String filename)
-			
+		Set<Message> activeNodes= requestActiveNodesForFile(filename);
 		// choose any available node
-		
+		ArrayList<Message> activeList = new ArrayList<Message>(activeNodes);
+		Message theMsg = activeList.get(0);
+		theMsg.setOptype(OperationType.READ);
 		// locate the registry and see if the node is still active by retrieving its remote object
-		
+		Registry nodeRegistry = Util.locateRegistry(theMsg.getNodeIP());
+		ChordNodeInterface node = (ChordNodeInterface) nodeRegistry.lookup(theMsg.getNodeIP().toString());
 		// build the operation to be performed - Read and request for votes in existing active node message
-		
 		// set the active nodes holding replica files in the contact node (setActiveNodesForFile)
- 		
+		node.setActiveNodesForFile(activeNodes);
 		// set the NodeIP in the message (replace ip with )
-		
-		
+		theMsg.setNodeIP(node.getNodeIP());
 		// send a request to a node and get the voters decision
-		
+		Boolean result = node.requestReadOperation(theMsg);
 		// put the decision back in the message
-		
+		theMsg.setAcknowledged(result);
 		// multicast voters' decision to the rest of the nodes
-		
+		node.multicastVotersDecision(theMsg);
 		// if majority votes
-		
+		if(theMsg.isAcknowledged()) {
+			node.acquireLock();
+			node.incrementclock();
+			Operations ops = new Operations(node, theMsg, activeNodes);
+			ops.performOperation();
+			ops.multicastReadReleaseLocks();
+			node.releaseLocks();
+		}
 		// acquire lock to CS and also increments localclock
-		
 		// perform operation by calling Operations class
-		
 		// optional: retrieve content of file on local resource
-		
 		// send message to let replicas release read lock they are holding
-		
 		// release locks after operations
-		
-			
-			
-		return false;		// change to your final answer
+		return theMsg.isAcknowledged();		// change to your final answer
 	}
 	
 	public boolean requestWriteToFileFromAnyActiveNode(String filename, String newcontent) throws RemoteException, NotBoundException {
 		
 		// get all the activenodes that have the file (replicas) i.e. requestActiveNodesForFile(String filename)
-		
+		Set<Message> activeNodes= requestActiveNodesForFile(filename);
 		// choose any available node
-		
+		ArrayList<Message> activeList = new ArrayList<Message>(activeNodes);
+		Message theMsg = activeList.get(0);
+		theMsg.setOptype(OperationType.WRITE);
+		theMsg.setNewcontent(newcontent);
 		// locate the registry and see if the node is still active by retrieving its remote object
-		
+		Registry nodeRegistry = Util.locateRegistry(theMsg.getNodeIP());
+		ChordNodeInterface node = (ChordNodeInterface) nodeRegistry.lookup(theMsg.getNodeIP().toString());
 		// build the operation to be performed - Read and request for votes in existing active node message
-		
 		// set the active nodes holding replica files in the contact node (setActiveNodesForFile)
- 		
+		node.setActiveNodesForFile(activeNodes);
 		// set the NodeIP in the message (replace ip with )
-		
-		
+		theMsg.setNodeIP(node.getNodeIP());
 		// send a request to a node and get the voters decision
-		
+		Boolean result = node.requestWriteOperation(theMsg);
 		// put the decision back in the message
-		
+		theMsg.setAcknowledged(result);
 		// multicast voters' decision to the rest of the nodes
-		
+		node.multicastVotersDecision(theMsg);
 		// if majority votes
-		
+		if(theMsg.isAcknowledged()) {
+			node.acquireLock();
+			node.incrementclock();
+			Operations ops = new Operations(node, theMsg, activeNodes);
+			ops.performOperation();
+			try {
+				distributeReplicaFiles();
+			}catch(IOException e) {
+				e.printStackTrace();
+			}
+			ops.multicastReadReleaseLocks();
+			node.releaseLocks();
+		}
 		// acquire lock to CS and also increments localclock
-		
 		// perform operation by calling Operations class
-		
 		// update replicas and let replicas release CS lock they are holding
-		
 		// release locks after operations
-		
-		return false;  // change to your final answer
+		return theMsg.isAcknowledged(); // change to your final answer
 
 	}
 

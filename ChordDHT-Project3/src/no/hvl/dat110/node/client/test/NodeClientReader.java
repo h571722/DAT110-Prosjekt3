@@ -1,5 +1,7 @@
 package no.hvl.dat110.node.client.test;
 
+import java.math.BigInteger;
+
 /**
  * exercise/demo purpose in dat110
  * @author tdoy
@@ -39,11 +41,23 @@ public class NodeClientReader extends Thread {
 
 		
 		// connect to an active chord node - can use the process defined in StaticTracker 
-		
+		String activeNode = StaticTracker.ACTIVENODES[0];
 		// Compute the hash of the node's IP address
-		
+		BigInteger hashNode = Hash.hashOf(activeNode);
 		// use the hash to retrieve the ChordNodeInterface remote object from the registry
-		
+		try {
+			ChordNodeInterface node = (ChordNodeInterface) Util.locateRegistry(activeNode).lookup(hashNode.toString());
+			// do: FileManager fm = new FileManager(ChordNodeInterface, StaticTracker.N);
+			FileManager fm = new FileManager(node, StaticTracker.N);
+			// do: boolean succeed = fm.requestWriteToFileFromAnyActiveNode(filename, content);
+			succeed = fm.requestToReadFileFromAnyActiveNode(filename);
+		} catch (RemoteException e) {
+			e.printStackTrace();
+			succeed = false;
+		} catch (NotBoundException e) {
+			e.printStackTrace();
+			succeed = false;
+		}
 		// do: FileManager fm = new FileManager(ChordNodeInterface, StaticTracker.N);
 		
 		// do: boolean succeed = fm.requestToReadFileFromAnyActiveNode(filename);
